@@ -46,6 +46,8 @@ class AppErrorBoundary extends Component<
   }
 }
 
+(window as unknown as { __TEAMS_ANNOUNCER_MOUNTED__?: boolean }).__TEAMS_ANNOUNCER_MOUNTED__ = true;
+
 createRoot(document.getElementById('root')!).render(
   <AppErrorBoundary>
     <App />
