@@ -5,6 +5,7 @@ import {
   AlignRight,
   Bold,
   CheckCircle2,
+  Copy,
   ImagePlus,
   Link2,
   Maximize2,
@@ -21,6 +22,7 @@ import {
   type ChangeEvent,
 } from 'react';
 import { toast } from 'sonner';
+import { buildClientAdaptiveCardPayload } from '../lib/adaptiveCardClient';
 import { apiUploadImage } from '../lib/apiClient';
 import type {
   PriorityLevel,
@@ -1067,28 +1069,61 @@ export function ComposerTab({
               />
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 px-5 py-3.5 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 border-t border-slate-100 px-5 py-3.5 bg-white">
               <button
                 type="button"
-                onClick={() => setPreviewModalOpen(false)}
-                disabled={submittingAction === 'publish'}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                onClick={async () => {
+                  const cardPayload = buildClientAdaptiveCardPayload({
+                    title: annTitle.trim() || 'عنوان الإعلان',
+                    subheading: annSubheading.trim(),
+                    content: editorRef.current?.innerHTML || annContent,
+                    headerColor: annHeaderColor,
+                    titleSize: annTitleSize,
+                    titleAlignment: annTitleAlignment,
+                    alignment: annAlignment,
+                    imageUrl: effectiveImageUrl,
+                    announcementDate: annDate,
+                    source: annSource,
+                    priority: annPriority,
+                  });
+                  try {
+                    await navigator.clipboard.writeText(
+                      JSON.stringify(cardPayload, null, 2),
+                    );
+                    toast.success('تم نسخ كود JSON لبطاقة Adaptive Card');
+                  } catch {
+                    toast.error('تعذر النسخ إلى الحافظة');
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap"
               >
-                إغلاق
+                <Copy className="size-3.5" />
+                <span>نسخ JSON البطاقة</span>
               </button>
-              <button
-                type="button"
-                onClick={handlePublishNow}
-                disabled={submittingAction === 'publish'}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 cursor-pointer"
-              >
-                {submittingAction === 'publish' ? (
-                  <RefreshCw className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
-                )}
-                <span>تأكيد النشر</span>
-              </button>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalOpen(false)}
+                  disabled={submittingAction === 'publish'}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  إغلاق
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePublishNow}
+                  disabled={submittingAction === 'publish'}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 cursor-pointer"
+                >
+                  {submittingAction === 'publish' ? (
+                    <RefreshCw className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                  <span>تأكيد النشر</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

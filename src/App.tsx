@@ -12,7 +12,9 @@ import {
   apiListAnnouncements,
   apiListChannels,
   apiPublishAnnouncement,
+  getBackendUrl,
   isStaticFallbackMode,
+  setBackendUrl,
 } from './lib/apiClient';
 import type { Announcement, TeamChannel } from './types';
 
@@ -25,6 +27,8 @@ export default function App() {
   const [loadingChannels, setLoadingChannels] = useState(true);
   const [loadingAnnouncements, setLoadingAnnouncements] = useState(true);
   const [staticMode, setStaticMode] = useState(false);
+  const [showBackendConfig, setShowBackendConfig] = useState(false);
+  const [backendUrlInput, setBackendUrlInput] = useState(() => getBackendUrl());
 
   const fetchChannels = useCallback(async () => {
     setLoadingChannels(true);
@@ -163,8 +167,69 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 space-y-6">
         {staticMode && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 leading-relaxed">
-            وضع المعاينة المحلية (استضافة ثابتة): يتم حفظ القنوات والمسودات في متصفحك محلياً. لتفعيل الإرسال الفعلي إلى Microsoft Teams وقاعدة بيانات SQLite، شغّل التطبيق عبر خادم Node.js (`npm run start`).
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="leading-relaxed">
+                وضع الاستضافة الثابتة (GitHub Pages): يتم حفظ القنوات والمسودات في المتصفح محلياً. قد يحظر المتصفح الإرسال المباشر لبعض روابط Teams بسبب قيود CORS إلا إذا كان الرابط من Power Automate أو تم ربط خادم خلفي (Node.js).
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowBackendConfig((v) => !v)}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100/60 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                {showBackendConfig ? 'إخفاء إعداد الخادم' : 'ربط خادم خلفي (Backend)'}
+              </button>
+            </div>
+
+            {showBackendConfig && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1 border-t border-amber-200/80">
+                <input
+                  type="url"
+                  dir="ltr"
+                  value={backendUrlInput}
+                  onChange={(e) => setBackendUrlInput(e.target.value)}
+                  placeholder="https://your-teams-server.example.com"
+                  className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-left font-mono text-xs text-slate-900 focus:border-emerald-600 focus:outline-none"
+                />
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const trimmed = backendUrlInput.trim();
+                      if (trimmed && !/^https?:\/\/.+/i.test(trimmed)) {
+                        toast.error('يرجى إدخال رابط يبدأ بـ https:// أو http://');
+                        return;
+                      }
+                      setBackendUrl(trimmed);
+                      await Promise.all([fetchChannels(), fetchAnnouncements()]);
+                      if (isStaticFallbackMode()) {
+                        toast.error('تعذر الاتصال بالخادم المحدد — تأكد من تشغيله وتفعيل CORS');
+                      } else {
+                        toast.success('تم الاتصال بالخادم الخلفي بنجاح');
+                        setShowBackendConfig(false);
+                      }
+                    }}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 cursor-pointer whitespace-nowrap"
+                  >
+                    حفظ واتصال
+                  </button>
+                  {getBackendUrl() && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setBackendUrl('');
+                        setBackendUrlInput('');
+                        await Promise.all([fetchChannels(), fetchAnnouncements()]);
+                        toast.success('تم فصل الخادم الخلفي');
+                      }}
+                      className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100/60 cursor-pointer whitespace-nowrap"
+                    >
+                      فصل
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -1,7 +1,12 @@
 import type { Announcement, PublishResponse, TeamChannel } from '../types';
+import {
+  buildClientAdaptiveCardPayload,
+  buildClientTestWebhookPayload,
+} from './adaptiveCardClient';
 
 const LS_CHANNELS_KEY = 'teams_announcer_channels_v1';
 const LS_ANNOUNCEMENTS_KEY = 'teams_announcer_announcements_v1';
+const LS_BACKEND_URL_KEY = 'teams_announcer_backend_url_v1';
 
 let serverModeCache: boolean | null = null;
 
@@ -27,6 +32,36 @@ function writeLocal<T>(key: string, data: T[]): void {
   }
 }
 
+export function getBackendUrl(): string {
+  try {
+    return (localStorage.getItem(LS_BACKEND_URL_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+export function setBackendUrl(url: string): void {
+  try {
+    const cleaned = url.trim().replace(/\/+$/, '');
+    if (cleaned) {
+      localStorage.setItem(LS_BACKEND_URL_KEY, cleaned);
+    } else {
+      localStorage.removeItem(LS_BACKEND_URL_KEY);
+    }
+    serverModeCache = null;
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function buildApiEndpoint(apiPath: string): string {
+  const base = getBackendUrl();
+  if (base && /^https?:\/\//i.test(base)) {
+    return `${base}${apiPath}`;
+  }
+  return `.${apiPath}`;
+}
+
 function makeId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 24)
@@ -37,22 +72,45 @@ export function isStaticFallbackMode(): boolean {
   return serverModeCache === false;
 }
 
+async function postWebhookDirectFromBrowser(
+  webhookUrl: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const text = (await res.text()).trim();
+    if ((res.status === 200 && text === '1') || res.status === 202) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: text
+        ? `Teams rejected (HTTP ${res.status}): ${text}`
+        : `Teams returned HTTP ${res.status}`,
+    };
+  } catch {
+    return {
+      ok: false,
+      error:
+        'حظر المتصفح الإرسال المباشر إلى رابط Teams بسبب قيود CORS. يمكنك ربط رابط خادم خلفي (Express Server) من الأعلى أو استخدام رابط Power Automate Workflow يدعم CORS أو تشغيل التطبيق عبر Node.js.',
+    };
+  }
+}
+
 export async function apiListChannels(): Promise<TeamChannel[]> {
   try {
-    const res = await fetch('./api/channels');
+    const res = await fetch(buildApiEndpoint('/api/channels'));
     if (res.ok && isJsonResponse(res)) {
       serverModeCache = true;
       return (await res.json()) as TeamChannel[];
     }
-    if (res.status === 404 || !isJsonResponse(res)) {
-      serverModeCache = false;
-      return readLocal<TeamChannel>(LS_CHANNELS_KEY);
-    }
-    throw new Error('Failed to fetch channels');
+    serverModeCache = false;
+    return readLocal<TeamChannel>(LS_CHANNELS_KEY);
   } catch {
-    if (serverModeCache === false) {
-      return readLocal<TeamChannel>(LS_CHANNELS_KEY);
-    }
     serverModeCache = false;
     return readLocal<TeamChannel>(LS_CHANNELS_KEY);
   }
@@ -63,9 +121,9 @@ export async function apiCreateChannel(input: {
   webhookUrl: string;
   description?: string;
 }): Promise<{ ok: true; data: TeamChannel } | { ok: false; error: string }> {
-  if (serverModeCache !== false) {
+  if (serverModeCache !== false || getBackendUrl()) {
     try {
-      const res = await fetch('./api/channels', {
+      const res = await fetch(buildApiEndpoint('/api/channels'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -101,9 +159,9 @@ export async function apiToggleChannel(
   id: string,
   isActive: boolean,
 ): Promise<{ ok: true; data: TeamChannel } | { ok: false; error: string }> {
-  if (serverModeCache !== false) {
+  if (serverModeCache !== false || getBackendUrl()) {
     try {
-      const res = await fetch(`./api/channels/${id}`, {
+      const res = await fetch(buildApiEndpoint(`/api/channels/${id}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive }),
@@ -137,9 +195,11 @@ export async function apiToggleChannel(
 export async function apiDeleteChannel(
   id: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (serverModeCache !== false) {
+  if (serverModeCache !== false || getBackendUrl()) {
     try {
-      const res = await fetch(`./api/channels/${id}`, { method: 'DELETE' });
+      const res = await fetch(buildApiEndpoint(`/api/channels/${id}`), {
+        method: 'DELETE',
+      });
       if (isJsonResponse(res)) {
         serverModeCache = true;
         if (!res.ok) {
@@ -165,9 +225,9 @@ export async function apiDeleteChannel(
 export async function apiTestWebhook(
   webhookUrl: string,
 ): Promise<{ success: boolean; error?: string }> {
-  if (serverModeCache !== false) {
+  if (serverModeCache !== false || getBackendUrl()) {
     try {
-      const res = await fetch('./api/test', {
+      const res = await fetch(buildApiEndpoint('/api/test'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ webhookUrl }),
@@ -182,19 +242,17 @@ export async function apiTestWebhook(
     }
   }
 
-  return {
-    success: false,
-    error:
-      'الاستضافة الثابتة (GitHub Pages) لا تحتوي على خادم خلفي لإرسال طلبات Webhook بسبب قيود المتصفح (CORS). شغّل الخادم (node server.ts) للنشر الفعلي إلى Teams.',
-  };
+  const payload = buildClientTestWebhookPayload();
+  const outcome = await postWebhookDirectFromBrowser(webhookUrl, payload);
+  return { success: outcome.ok, error: outcome.error };
 }
 
 export async function apiUploadImage(
   base64Data: string,
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
-  if (serverModeCache !== false) {
+  if (serverModeCache !== false || getBackendUrl()) {
     try {
-      const res = await fetch('./api/upload', {
+      const res = await fetch(buildApiEndpoint('/api/upload'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base64Data }),
@@ -203,7 +261,11 @@ export async function apiUploadImage(
         serverModeCache = true;
         const data = await res.json();
         if (!res.ok) return { ok: false, error: data.error || 'فشل رفع الصورة' };
-        return { ok: true, url: data.url as string };
+        const rawUrl = String(data.url || '');
+        const base = getBackendUrl();
+        const fullUrl =
+          base && rawUrl.startsWith('/') ? `${base}${rawUrl}` : rawUrl;
+        return { ok: true, url: fullUrl };
       }
       serverModeCache = false;
     } catch {
@@ -211,13 +273,12 @@ export async function apiUploadImage(
     }
   }
 
-  // Static fallback: use base64 data URL for local preview
   return { ok: true, url: base64Data };
 }
 
 export async function apiListAnnouncements(): Promise<Announcement[]> {
   try {
-    const res = await fetch('./api/announcements');
+    const res = await fetch(buildApiEndpoint('/api/announcements'));
     if (res.ok && isJsonResponse(res)) {
       serverModeCache = true;
       return (await res.json()) as Announcement[];
@@ -245,9 +306,9 @@ export async function apiCreateAnnouncement(input: {
   source: string;
   imageUrl: string;
 }): Promise<{ ok: true; data: Announcement } | { ok: false; error: string }> {
-  if (serverModeCache !== false) {
+  if (serverModeCache !== false || getBackendUrl()) {
     try {
-      const res = await fetch('./api/announcements', {
+      const res = await fetch(buildApiEndpoint('/api/announcements'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -293,9 +354,9 @@ export async function apiCreateAnnouncement(input: {
 export async function apiPublishAnnouncement(
   announcementId: string,
 ): Promise<PublishResponse> {
-  if (serverModeCache !== false) {
+  if (serverModeCache !== false || getBackendUrl()) {
     try {
-      const res = await fetch('./api/announcements/publish', {
+      const res = await fetch(buildApiEndpoint('/api/announcements/publish'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ announcementId }),
@@ -310,12 +371,70 @@ export async function apiPublishAnnouncement(
     }
   }
 
+  const announcements = readLocal<Announcement>(LS_ANNOUNCEMENTS_KEY);
+  const announcement = announcements.find((a) => a.id === announcementId);
+  if (!announcement) {
+    return {
+      success: false,
+      totalChannels: 0,
+      successful: 0,
+      results: [],
+      error: 'الإعلان غير موجود',
+    };
+  }
+
+  const targetIds = announcement.channelIds
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const channels = readLocal<TeamChannel>(LS_CHANNELS_KEY).filter(
+    (c) => c.isActive && targetIds.includes(c.id),
+  );
+
+  if (channels.length === 0) {
+    return {
+      success: false,
+      totalChannels: 0,
+      successful: 0,
+      results: [],
+      error: 'لا توجد قنوات نشطة محددة لهذا الإعلان',
+    };
+  }
+
+  const payload = buildClientAdaptiveCardPayload(announcement);
+  const results: Array<{ channel: string; ok: boolean; detail: string }> = [];
+  let successful = 0;
+
+  for (const ch of channels) {
+    const outcome = await postWebhookDirectFromBrowser(ch.webhookUrl, payload);
+    if (outcome.ok) {
+      successful += 1;
+      results.push({ channel: ch.name, ok: true, detail: 'Sent successfully' });
+    } else {
+      results.push({
+        channel: ch.name,
+        ok: false,
+        detail: outcome.error || 'Unknown error',
+      });
+    }
+  }
+
+  if (successful > 0) {
+    const now = new Date().toISOString();
+    writeLocal(
+      LS_ANNOUNCEMENTS_KEY,
+      announcements.map((a) =>
+        a.id === announcementId
+          ? { ...a, status: 'منشور', publishedAt: now, updatedAt: now }
+          : a,
+      ),
+    );
+  }
+
   return {
-    success: false,
-    totalChannels: 0,
-    successful: 0,
-    results: [],
-    error:
-      'تم حفظ الإعلان محلياً كمسودة. يتطلب النشر الفعلي إلى Microsoft Teams تشغيل الخادم الخلفي (Express Server) لأن GitHub Pages استضافة ملفات ثابتة فقط.',
+    success: successful > 0,
+    totalChannels: channels.length,
+    successful,
+    results,
   };
 }

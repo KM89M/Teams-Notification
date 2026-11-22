@@ -71,6 +71,24 @@ async function startServer() {
   app.set('trust proxy', true);
   app.use(express.json({ limit: '10mb' }));
 
+  app.use('/api', (req, res, next) => {
+    const origin = req.headers.origin;
+    if (
+      origin &&
+      (/^https:\/\/[a-z0-9-]+\.github\.io$/i.test(origin) ||
+        /^http:\/\/localhost:\d+$/i.test(origin))
+    ) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+
   const uploadsDir = getUploadsDir();
   app.use('/uploads', express.static(uploadsDir));
 
