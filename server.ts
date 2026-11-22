@@ -22,7 +22,7 @@ import {
   validateOutboundUrl,
 } from './server/security.ts';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function postToTeamsWebhook(
   webhookUrl: string,
