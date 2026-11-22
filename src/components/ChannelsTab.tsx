@@ -9,6 +9,12 @@ import {
 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
+import {
+  apiCreateChannel,
+  apiDeleteChannel,
+  apiTestWebhook,
+  apiToggleChannel,
+} from '../lib/apiClient';
 import type { TeamChannel } from '../types';
 
 interface ChannelsTabProps {
@@ -41,21 +47,16 @@ export function ChannelsTab({ channels, loading, onRefresh }: ChannelsTabProps) 
 
     setSubmitting(true);
     try {
-      const res = await fetch('/api/channels', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          webhookUrl: webhookUrl.trim(),
-          description: description.trim(),
-        }),
+      const result = await apiCreateChannel({
+        name: name.trim(),
+        webhookUrl: webhookUrl.trim(),
+        description: description.trim(),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'تعذر إضافة القناة');
+      if (!result.ok) {
+        toast.error(result.error);
         return;
       }
-      toast.success(`تمت إضافة قناة "${data.name}" بنجاح`);
+      toast.success(`تمت إضافة قناة "${result.data.name}" بنجاح`);
       setName('');
       setWebhookUrl('');
       setDescription('');
@@ -70,12 +71,7 @@ export function ChannelsTab({ channels, loading, onRefresh }: ChannelsTabProps) 
   const handleTestWebhook = async (channel: TeamChannel) => {
     setTestingId(channel.id);
     try {
-      const res = await fetch('/api/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhookUrl: channel.webhookUrl }),
-      });
-      const data = await res.json();
+      const data = await apiTestWebhook(channel.webhookUrl);
       if (data.success) {
         toast.success(`تم إرسال رسالة الاختبار إلى "${channel.name}" بنجاح`);
       } else {
@@ -94,18 +90,13 @@ export function ChannelsTab({ channels, loading, onRefresh }: ChannelsTabProps) 
   const handleToggleActive = async (channel: TeamChannel) => {
     setTogglingId(channel.id);
     try {
-      const res = await fetch(`/api/channels/${channel.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: !channel.isActive }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'تعذر تحديث حالة القناة');
+      const result = await apiToggleChannel(channel.id, !channel.isActive);
+      if (!result.ok) {
+        toast.error(result.error);
         return;
       }
       toast.success(
-        data.isActive
+        result.data.isActive
           ? `تم تفعيل قناة "${channel.name}"`
           : `تم تعطيل قناة "${channel.name}"`,
       );
@@ -121,12 +112,9 @@ export function ChannelsTab({ channels, loading, onRefresh }: ChannelsTabProps) 
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/channels/${deleteTarget.id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        toast.error(data.error || 'تعذر حذف القناة');
+      const result = await apiDeleteChannel(deleteTarget.id);
+      if (!result.ok) {
+        toast.error(result.error);
         return;
       }
       toast.success(`تم حذف قناة "${deleteTarget.name}"`);

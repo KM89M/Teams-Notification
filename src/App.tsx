@@ -7,7 +7,14 @@ import {
   type AnnouncementFormPayload,
 } from './components/ComposerTab';
 import { HistoryTab } from './components/HistoryTab';
-import type { Announcement, PublishResponse, TeamChannel } from './types';
+import {
+  apiCreateAnnouncement,
+  apiListAnnouncements,
+  apiListChannels,
+  apiPublishAnnouncement,
+  isStaticFallbackMode,
+} from './lib/apiClient';
+import type { Announcement, TeamChannel } from './types';
 
 type ActiveTab = 'channels' | 'compose' | 'history';
 
@@ -17,14 +24,14 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loadingChannels, setLoadingChannels] = useState(true);
   const [loadingAnnouncements, setLoadingAnnouncements] = useState(true);
+  const [staticMode, setStaticMode] = useState(false);
 
   const fetchChannels = useCallback(async () => {
     setLoadingChannels(true);
     try {
-      const res = await fetch('/api/channels');
-      if (!res.ok) throw new Error('Failed to fetch channels');
-      const data: TeamChannel[] = await res.json();
+      const data = await apiListChannels();
       setChannels(data);
+      setStaticMode(isStaticFallbackMode());
     } catch {
       toast.error('تعذر تحميل قائمة القنوات');
     } finally {
@@ -35,10 +42,9 @@ export default function App() {
   const fetchAnnouncements = useCallback(async () => {
     setLoadingAnnouncements(true);
     try {
-      const res = await fetch('/api/announcements');
-      if (!res.ok) throw new Error('Failed to fetch announcements');
-      const data: Announcement[] = await res.json();
+      const data = await apiListAnnouncements();
       setAnnouncements(data);
+      setStaticMode(isStaticFallbackMode());
     } catch {
       toast.error('تعذر تحميل سجل الإعلانات');
     } finally {
@@ -55,17 +61,12 @@ export default function App() {
     payload: AnnouncementFormPayload,
   ): Promise<Announcement | null> => {
     try {
-      const res = await fetch('/api/announcements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'تعذر حفظ الإعلان');
+      const result = await apiCreateAnnouncement(payload);
+      if (!result.ok) {
+        toast.error(result.error);
         return null;
       }
-      return data as Announcement;
+      return result.data;
     } catch {
       toast.error('حدث خطأ في الاتصال بالخادم');
       return null;
@@ -76,15 +77,10 @@ export default function App() {
     announcementId: string,
   ): Promise<boolean> => {
     try {
-      const res = await fetch('/api/announcements/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ announcementId }),
-      });
-      const data: PublishResponse = await res.json();
+      const data = await apiPublishAnnouncement(announcementId);
 
-      if (!res.ok && !data.results?.length) {
-        toast.error(data.error || 'فشل نشر الإعلان', { duration: 10000 });
+      if (!data.results?.length && data.error) {
+        toast.error(data.error, { duration: 10000 });
         return false;
       }
 
@@ -166,6 +162,12 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 space-y-6">
+        {staticMode && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 leading-relaxed">
+            وضع المعاينة المحلية (استضافة ثابتة): يتم حفظ القنوات والمسودات في متصفحك محلياً. لتفعيل الإرسال الفعلي إلى Microsoft Teams وقاعدة بيانات SQLite، شغّل التطبيق عبر خادم Node.js (`npm run start`).
+          </div>
+        )}
+
         {/* Three-Tab Navigation */}
         <div
           role="tablist"

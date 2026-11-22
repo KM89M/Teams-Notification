@@ -21,6 +21,7 @@ import {
   type ChangeEvent,
 } from 'react';
 import { toast } from 'sonner';
+import { apiUploadImage } from '../lib/apiClient';
 import type {
   PriorityLevel,
   TeamChannel,
@@ -304,18 +305,13 @@ export function ComposerTab({
         reader.readAsDataURL(file);
       });
 
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base64Data }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'فشل رفع الصورة');
+      const result = await apiUploadImage(base64Data);
+      if (!result.ok) {
+        toast.error(result.error);
         return;
       }
 
-      setAnnImageUrl(data.url);
+      setAnnImageUrl(result.url);
       setAnnExternalImageUrl('');
       toast.success('تم رفع الصورة بنجاح');
     } catch {
