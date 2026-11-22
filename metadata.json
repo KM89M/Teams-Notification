@@ -1,0 +1,6 @@
+{
+  "name": "نظام نشر الإعلانات - Microsoft Teams",
+  "description": "نظام إدارة قنوات Microsoft Teams وإنشاء ونشر الإعلانات الغنية عبر البطاقات التفاعلية (Adaptive Cards).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
